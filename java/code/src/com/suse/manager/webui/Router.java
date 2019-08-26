@@ -28,8 +28,6 @@ import static spark.Spark.notFound;
 import static spark.Spark.post;
 
 import com.suse.manager.webui.controllers.ActivationKeysController;
-import com.suse.manager.webui.controllers.admin.AdminApiController;
-import com.suse.manager.webui.controllers.admin.AdminViewsController;
 import com.suse.manager.webui.controllers.CVEAuditController;
 import com.suse.manager.webui.controllers.DownloadController;
 import com.suse.manager.webui.controllers.FormulaCatalogController;
@@ -54,11 +52,14 @@ import com.suse.manager.webui.controllers.VirtualHostManagerController;
 import com.suse.manager.webui.controllers.VirtualNetsController;
 import com.suse.manager.webui.controllers.VirtualPoolsController;
 import com.suse.manager.webui.controllers.VisualizationController;
+import com.suse.manager.webui.controllers.admin.AdminApiController;
+import com.suse.manager.webui.controllers.admin.AdminViewsController;
+import com.suse.manager.webui.controllers.autoinstallation.AutoinstallationApiController;
+import com.suse.manager.webui.controllers.autoinstallation.AutoinstallationViewsController;
 import com.suse.manager.webui.controllers.channels.ChannelsApiController;
 import com.suse.manager.webui.controllers.contentmanagement.ContentManagementApiController;
 import com.suse.manager.webui.controllers.contentmanagement.ContentManagementViewsController;
 import com.suse.manager.webui.errors.NotFoundException;
-
 import org.apache.http.HttpStatus;
 
 import java.util.HashMap;
@@ -104,6 +105,10 @@ public class Router implements SparkApplication {
         // Content Management Routes
         ContentManagementViewsController.initRoutes(jade);
         ContentManagementApiController.initRoutes();
+
+        // Autoinstallation Profiles
+        AutoinstallationViewsController.initRoutes(jade);
+        AutoinstallationApiController.initRoutes();
 
         // Channels
         ChannelsApiController.initRoutes();

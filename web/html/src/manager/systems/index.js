@@ -7,5 +7,6 @@ module.exports = {
     'virtualhostmanager/virtualhostmanager.js',
     'delete-system-confirm.js',
     'duplicate-systems-compare-delete.js',
+    'autoinstallation/profiles/create-autoinstall-profile.renderer.js',
   ]
 };
