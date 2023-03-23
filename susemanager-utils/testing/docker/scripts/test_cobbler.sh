@@ -1,42 +1,83 @@
 #!/bin/bash
 
-set -e
+# Credits to: https://stackoverflow.com/a/246128/4730773
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+# Credits to: https://stackoverflow.com/a/192337/4730773
+SCRIPT_NAME=$(basename "$0")
+# Configuration for the script
+CONTAINER_NAME="cobbler-rpm-testsuite"
+IMAGE="registry.opensuse.org/systemsmanagement/uyuni/master/docker/containers/uyuni-master-cobbler"
+# registry.suse.de/devel/galaxy/manager/head/docker/containers/suma-head-cobbler:latest
+# registry.suse.de/devel/galaxy/manager/4.3/docker/containers/suma-4.3-cobbler:latest
+TAG="latest"
+EXECUTOR="docker"
 
-zypper --non-interactive --gpg-auto-import-keys ref
+function log() {
+    echo "[COBBLER TESTS] $1"
+}
 
-# Packages required to run the cobbler unit tests
-zypper in -y  --no-recommends cobbler-tests cobbler-tests-containers
+function pull_image() {
+    log "Pulling container $IMAGE:$TAG"
+    $EXECUTOR pull "$IMAGE:$TAG"
+}
 
-cp /root/cobbler-apache.conf /etc/apache2/conf.d/cobbler.conf
-cp /root/modules.conf /etc/cobbler/modules.conf
-cp /root/cobbler_web.conf /etc/apache2/vhosts.d/cobbler_web.conf
-cp /root/apache2 /etc/sysconfig/apache2
-cp /root/sample.ks /var/lib/cobbler/kickstarts/sample.ks
+function cleanup_container() {
+    log "Cleaning up old container"
+    CONTAINER_ID=$($EXECUTOR ps --format "{{.ID}}" -a -f "name=$CONTAINER_NAME")
+    if [ -z "$CONTAINER_ID" ]; then
+        log "No container to remove"
 
-# migrate modules.conf
-/usr/share/cobbler/bin/settings-migration-v1-to-v2.sh -s
+    else
+        log "Removed container $CONTAINER_ID"
+        $EXECUTOR rm "$CONTAINER_ID"
+    fi
+}
 
-# start apache - required by cobbler tests
-/usr/sbin/start_apache2 -D SYSTEMD  -k start
+function run_default() {
+    log "Starting container"
+    mkdir -p "$SCRIPT_DIR/../../../../cobbler_reports"
+    $EXECUTOR run -d --name "$CONTAINER_NAME" -v "$SCRIPT_DIR/../../../../cobbler_reports:/reports" "$IMAGE:$TAG"
+}
 
-# start cobbler daemon
-cobblerd
+function execute_tests() {
+    log "Prepare testcontainer"
+    # Required to not back the certificate into the image
+    $EXECUTOR exec "$CONTAINER_NAME" sh -c "/code/docker/develop/scripts/setup-openldap.sh"
+    # Required to install a package that is not present in the OBS/IBS project
+    $EXECUTOR exec "$CONTAINER_NAME" sh -c "/code/docker/develop/scripts/setup-reposync.sh"
+    # Required because LDAP certificates are not part of the image
+    $EXECUTOR exec "$CONTAINER_NAME" sh -c "ldapadd -Y EXTERNAL -H ldapi:/// -f /code/docker/develop/openldap/test.ldif"
 
-ln -s /usr/share/cobbler/ /code
+    log "Running cobbler tests"
+    $EXECUTOR exec "$CONTAINER_NAME" sh -c "pytest --junitxml=/reports/cobbler.xml /code/tests/"
+}
 
-# Configure DHCP
-sed -i 's/DHCPD_INTERFACE=""/DHCPD_INTERFACE="ANY"/' /etc/sysconfig/dhcpd
-echo "subnet 172.17.0.0 netmask 255.255.255.0 {}"  >> /etc/dhcpd.conf
-sed -i "s/dhcpd -4 -f/dhcpd -f/g" /code/docker/develop/supervisord/conf.d/dhcpd.conf
-sed -i "s/nogroup pxe/nogroup/g" /code/docker/develop/supervisord/conf.d/dhcpd.conf
+function execute_shell() {
+    log "Spawning a shell inside of the cobbler tests container"
+    $EXECUTOR exec -ti --entrypoint=/usr/bin/bash "$CONTAINER_NAME"
+}
 
-# Configure PAM
-useradd -p $(perl -e 'print crypt("test", "password")') test
+function print_help() {
+    echo "Usage: $SCRIPT_NAME [-e|-i|-t|-h]"
+    echo
+    echo "Options:"
+    echo "e <argument>: Switches the image executor to a user defined one. (Default: docker)"
+    echo "i <argument>: Sets the image that is being used to a custom one."
+    echo "t <argument>: Set the image tag to a custom one. (Default: latest)"
+    echo "h: Displays this message."
+}
 
-sh /code/docker/develop/scripts/setup-supervisor.sh || true
+while getopts e:i:t:h flag; do
+    case "${flag}" in
+    e) EXECUTOR=${OPTARG} ;;
+    i) IMAGE=${OPTARG} ;;
+    t) TAG=${OPTARG} ;;
+    h) print_help ;;
+    *) echo "Unknown option" ;;
+    esac
+done
 
-# execute the tests
-
-cd /code/tests
-
-pytest --junitxml=/reports/cobbler.xml
+pull_image
+cleanup_container
+run_default
+execute_tests
